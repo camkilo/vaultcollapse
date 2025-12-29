@@ -22,6 +22,14 @@ let gameStartTime = 0;
 let collapseInterval = 5000; // milliseconds
 let lastCollapseTime = 0;
 let collapsedRooms = [];
+let collapsedCorridors = [];
+
+// Map movement state
+let mapDrift = {
+    offset: new THREE.Vector3(0, 0, 0),
+    velocity: new THREE.Vector3(0, 0, 0),
+    swayTime: 0
+};
 
 // Initialize the game
 function init() {
@@ -142,6 +150,8 @@ function generateLevel() {
         const toWorld = new THREE.Vector3(toPos.x * spacing - spacing, 0, toPos.z * spacing - spacing);
         
         const corridor = createCorridor(fromWorld, toWorld, corridorWidth);
+        corridor.userData.connectedRooms = [from, to];
+        corridor.userData.isCollapsed = false;
         corridors.push(corridor);
     }
     
@@ -462,6 +472,8 @@ function findNearestSurface() {
     
     // Check corridors
     for (const corridor of corridors) {
+        if (corridor.userData.isCollapsed) continue;
+        
         for (const child of corridor.children) {
             if (!child.userData.isSurface) continue;
             
@@ -558,8 +570,43 @@ function collapseRandomRoom() {
     room.userData.isCollapsed = true;
     room.userData.collapseStartTime = Date.now();
     room.userData.collapsePhase = 'shake'; // shake -> fall
+    room.userData.rotationVelocity = new THREE.Vector3(
+        (Math.random() - 0.5) * 0.04,
+        (Math.random() - 0.5) * 0.02,
+        (Math.random() - 0.5) * 0.04
+    );
     
     collapsedRooms.push(room);
+    
+    // Collapse connected corridors
+    collapseConnectedCorridors(room.userData.index);
+}
+
+function collapseConnectedCorridors(roomIndex) {
+    for (const corridor of corridors) {
+        if (corridor.userData.isCollapsed) continue;
+        
+        // Check if this corridor connects to the collapsed room
+        if (corridor.userData.connectedRooms.includes(roomIndex)) {
+            // Check if both connected rooms are collapsed
+            const [room1, room2] = corridor.userData.connectedRooms;
+            const room1Collapsed = rooms[room1].userData.isCollapsed;
+            const room2Collapsed = rooms[room2].userData.isCollapsed;
+            
+            // Corridor collapses if either connected room is collapsed
+            if (room1Collapsed || room2Collapsed) {
+                corridor.userData.isCollapsed = true;
+                corridor.userData.collapseStartTime = Date.now();
+                corridor.userData.collapsePhase = 'shake';
+                corridor.userData.rotationVelocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.06,
+                    (Math.random() - 0.5) * 0.03,
+                    (Math.random() - 0.5) * 0.06
+                );
+                collapsedCorridors.push(corridor);
+            }
+        }
+    }
 }
 
 function updateCollapsingRooms() {
@@ -576,12 +623,101 @@ function updateCollapsingRooms() {
                 room.userData.fallStartY = room.position.y;
             }
         } else if (room.userData.collapsePhase === 'fall') {
-            // Fall and rotate
+            // Fall with acceleration and rotation
             const fallTime = (elapsed - 1000) / 1000;
             room.position.y = room.userData.fallStartY - fallTime * fallTime * 10;
-            room.rotation.x += 0.02;
-            room.rotation.z += 0.015;
+            
+            // Apply rotational velocity with acceleration
+            room.rotation.x += room.userData.rotationVelocity.x * fallTime;
+            room.rotation.y += room.userData.rotationVelocity.y * fallTime;
+            room.rotation.z += room.userData.rotationVelocity.z * fallTime;
         }
+    }
+}
+
+function updateCollapsingCorridors() {
+    for (const corridor of collapsedCorridors) {
+        const elapsed = Date.now() - corridor.userData.collapseStartTime;
+        
+        if (corridor.userData.collapsePhase === 'shake') {
+            // Shake for 0.5 seconds (faster than rooms)
+            if (elapsed < 500) {
+                const shake = Math.sin(elapsed * 0.08) * 0.2;
+                corridor.position.y = shake;
+            } else {
+                corridor.userData.collapsePhase = 'fall';
+                corridor.userData.fallStartY = corridor.position.y;
+            }
+        } else if (corridor.userData.collapsePhase === 'fall') {
+            // Fall faster than rooms (they're lighter)
+            const fallTime = (elapsed - 500) / 1000;
+            corridor.position.y = corridor.userData.fallStartY - fallTime * fallTime * 15;
+            
+            // Apply rotational velocity with acceleration
+            corridor.rotation.x += corridor.userData.rotationVelocity.x * fallTime;
+            corridor.rotation.y += corridor.userData.rotationVelocity.y * fallTime;
+            corridor.rotation.z += corridor.userData.rotationVelocity.z * fallTime;
+        }
+    }
+}
+
+function updateMapMovement(deltaTime) {
+    if (!gameActive) return;
+    
+    // Global sway/drift effect - increases as game progresses
+    const gameTime = (Date.now() - gameStartTime) / 1000;
+    const intensity = Math.min(gameTime / 30, 1.0); // Ramps up over 30 seconds
+    
+    mapDrift.swayTime += deltaTime;
+    
+    // Sinusoidal drift in multiple axes
+    const swayX = Math.sin(mapDrift.swayTime * 0.3) * 0.5 * intensity;
+    const swayY = Math.sin(mapDrift.swayTime * 0.2) * 0.3 * intensity;
+    const swayZ = Math.cos(mapDrift.swayTime * 0.25) * 0.5 * intensity;
+    
+    mapDrift.offset.set(swayX, swayY, swayZ);
+    
+    // Apply drift to all non-collapsed structures
+    for (const room of rooms) {
+        if (!room.userData.isCollapsed) {
+            const basePos = room.userData.basePosition || room.position.clone();
+            if (!room.userData.basePosition) {
+                room.userData.basePosition = basePos.clone();
+            }
+            room.position.copy(basePos).add(mapDrift.offset);
+        }
+    }
+    
+    for (const corridor of corridors) {
+        if (!corridor.userData.isCollapsed) {
+            const basePos = corridor.userData.basePosition || corridor.position.clone();
+            if (!corridor.userData.basePosition) {
+                corridor.userData.basePosition = basePos.clone();
+            }
+            corridor.position.copy(basePos).add(mapDrift.offset);
+        }
+    }
+    
+    // Apply to data cores
+    for (const core of dataCores) {
+        if (!core.userData.collected) {
+            const basePos = core.userData.basePosition || core.position.clone();
+            if (!core.userData.basePosition) {
+                core.userData.basePosition = basePos.clone();
+            }
+            core.position.copy(basePos).add(mapDrift.offset);
+            core.userData.light.position.copy(core.position);
+        }
+    }
+    
+    // Apply to exit portal
+    if (exitPortal) {
+        const basePos = exitPortal.userData.basePosition || exitPortal.position.clone();
+        if (!exitPortal.userData.basePosition) {
+            exitPortal.userData.basePosition = basePos.clone();
+        }
+        exitPortal.position.copy(basePos).add(mapDrift.offset);
+        exitPortal.userData.light.position.copy(exitPortal.position);
     }
 }
 
@@ -612,6 +748,7 @@ function animate() {
     const deltaTime = clock.getDelta();
     
     if (gameActive) {
+        updateMapMovement(deltaTime);
         updatePlayer(deltaTime);
         updateHUD();
         
@@ -619,13 +756,16 @@ function animate() {
         for (const core of dataCores) {
             if (!core.userData.collected) {
                 core.rotation.y += deltaTime * 2;
-                core.position.y += Math.sin(Date.now() * 0.003) * 0.01;
+                const baseY = core.userData.basePosition ? core.userData.basePosition.y : core.position.y;
+                core.position.y = baseY + mapDrift.offset.y + Math.sin(Date.now() * 0.003) * 0.3;
+                core.userData.light.position.copy(core.position);
             }
         }
         
         // Animate exit portal
         if (exitPortal) {
             exitPortal.rotation.y += deltaTime;
+            const baseX = exitPortal.userData.basePosition ? exitPortal.userData.basePosition.x : exitPortal.position.x;
             exitPortal.rotation.x = Math.sin(Date.now() * 0.001) * 0.2;
         }
         
@@ -635,8 +775,9 @@ function animate() {
             lastCollapseTime = Date.now();
         }
         
-        // Update collapsing rooms
+        // Update collapsing rooms and corridors
         updateCollapsingRooms();
+        updateCollapsingCorridors();
     }
     
     renderer.render(scene, camera);
