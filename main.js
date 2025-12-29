@@ -19,9 +19,16 @@ let dataCores = [];
 let exitPortal = null;
 let gameActive = false;
 let gameStartTime = 0;
-let collapseInterval = 5000; // milliseconds
-let lastCollapseTime = 0;
 let collapsedRooms = [];
+let collapsedCorridors = [];
+let debrisParticles = []; // Visual debris from collapse
+
+// Map movement state
+let mapDrift = {
+    offset: new THREE.Vector3(0, 0, 0),
+    velocity: new THREE.Vector3(0, 0, 0),
+    swayTime: 0
+};
 
 // Initialize the game
 function init() {
@@ -44,12 +51,21 @@ function init() {
     clock = new THREE.Clock();
     
     // Lights
-    const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+    const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
     scene.add(ambientLight);
     
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
     directionalLight.position.set(10, 50, 10);
     scene.add(directionalLight);
+    
+    // Add dramatic spotlights along the path
+    for (let i = 0; i < 5; i++) {
+        const spotLight = new THREE.SpotLight(0xff6600, 0.8, 100, Math.PI / 6, 0.5, 2);
+        spotLight.position.set(0, 30, i * 125);
+        spotLight.target.position.set(0, 0, i * 125);
+        scene.add(spotLight);
+        scene.add(spotLight.target);
+    }
     
     // Generate level
     generateLevel();
@@ -75,95 +91,109 @@ function init() {
 }
 
 function generateLevel() {
-    // Room layout: 3x4 grid with some rooms missing for variety
+    // Linear progressive map - long forward path
     const roomSize = 15;
     const corridorWidth = 3;
     const spacing = 25;
+    const numRooms = 25; // Extended path for running through
     
-    const roomPositions = [
-        { x: 0, z: 0 },      // 0 - Start
-        { x: 1, z: 0 },      // 1
-        { x: 2, z: 0 },      // 2
-        { x: 0, z: 1 },      // 3
-        { x: 1, z: 1 },      // 4 - Center
-        { x: 2, z: 1 },      // 5
-        { x: 0, z: 2 },      // 6
-        { x: 1, z: 2 },      // 7
-        { x: 2, z: 2 },      // 8
-        { x: 0, z: 3 },      // 9
-        { x: 1, z: 3 },      // 10
-        { x: 2, z: 3 }       // 11 - Exit
-    ];
+    // Create a winding path forward with some lateral variation
+    const roomPositions = [];
+    for (let i = 0; i < numRooms; i++) {
+        // Primary forward movement (z-axis)
+        const z = i;
+        // Add slight lateral variation for visual interest
+        const x = Math.floor(Math.sin(i * 0.5) * 1.5);
+        roomPositions.push({ x, z });
+    }
     
     // Create rooms
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < numRooms; i++) {
         const pos = roomPositions[i];
         const room = createRoom(
-            pos.x * spacing - spacing,
+            pos.x * spacing,
             0,
-            pos.z * spacing - spacing,
+            pos.z * spacing,
             roomSize
         );
         room.userData.index = i;
         room.userData.isCollapsed = false;
         rooms.push(room);
         
-        // Start room - special color
+        // Start room - green glow
         if (i === 0) {
             room.children.forEach(child => {
                 if (child.material) {
                     child.material.color.setHex(0x003300);
+                    child.material.emissive = new THREE.Color(0x002200);
+                    child.material.emissiveIntensity = 0.3;
                 }
             });
         }
         
-        // Exit room - special color
-        if (i === 11) {
+        // Exit room - purple glow at the end
+        if (i === numRooms - 1) {
             room.children.forEach(child => {
                 if (child.material) {
                     child.material.color.setHex(0x330033);
+                    child.material.emissive = new THREE.Color(0x220022);
+                    child.material.emissiveIntensity = 0.3;
+                }
+            });
+        }
+        
+        // Mid-path rooms - subtle color variation for visual interest
+        if (i > 0 && i < numRooms - 1) {
+            const colorVariation = Math.floor(i / 5) % 3;
+            room.children.forEach(child => {
+                if (child.material) {
+                    if (colorVariation === 0) {
+                        child.material.color.setHex(0x222233);
+                    } else if (colorVariation === 1) {
+                        child.material.color.setHex(0x332222);
+                    } else {
+                        child.material.color.setHex(0x223322);
+                    }
                 }
             });
         }
     }
     
-    // Create corridors connecting adjacent rooms
-    const connections = [
-        [0, 1], [1, 2], [0, 3], [1, 4], [2, 5],
-        [3, 4], [4, 5], [3, 6], [4, 7], [5, 8],
-        [6, 7], [7, 8], [6, 9], [7, 10], [8, 11],
-        [9, 10], [10, 11]
-    ];
+    // Create corridors connecting sequential rooms
+    const connections = [];
+    for (let i = 0; i < numRooms - 1; i++) {
+        connections.push([i, i + 1]);
+    }
     
     for (const [from, to] of connections) {
         const fromPos = roomPositions[from];
         const toPos = roomPositions[to];
-        const fromWorld = new THREE.Vector3(fromPos.x * spacing - spacing, 0, fromPos.z * spacing - spacing);
-        const toWorld = new THREE.Vector3(toPos.x * spacing - spacing, 0, toPos.z * spacing - spacing);
+        const fromWorld = new THREE.Vector3(fromPos.x * spacing, 0, fromPos.z * spacing);
+        const toWorld = new THREE.Vector3(toPos.x * spacing, 0, toPos.z * spacing);
         
         const corridor = createCorridor(fromWorld, toWorld, corridorWidth);
+        corridor.userData.connectedRooms = [from, to];
+        corridor.userData.isCollapsed = false;
         corridors.push(corridor);
     }
     
-    // Place data cores (not in start or exit room)
-    const coreRooms = [2, 4, 6, 9]; // Place cores in these rooms
-    for (let i = 0; i < 4; i++) {
-        const roomIdx = coreRooms[i];
-        const pos = roomPositions[roomIdx];
+    // Place data cores along the path (every 6 rooms)
+    for (let i = 5; i < numRooms - 2; i += 6) {
+        const pos = roomPositions[i];
         const core = createDataCore(
-            pos.x * spacing - spacing,
+            pos.x * spacing,
             3,
-            pos.z * spacing - spacing
+            pos.z * spacing
         );
         dataCores.push(core);
     }
     
     // Create exit portal in last room
-    const exitPos = roomPositions[11];
+    const exitPos = roomPositions[numRooms - 1];
     exitPortal = createExitPortal(
-        exitPos.x * spacing - spacing,
+        exitPos.x * spacing,
         3,
-        exitPos.z * spacing - spacing
+        exitPos.z * spacing
     );
 }
 
@@ -462,6 +492,8 @@ function findNearestSurface() {
     
     // Check corridors
     for (const corridor of corridors) {
+        if (corridor.userData.isCollapsed) continue;
+        
         for (const child of corridor.children) {
             if (!child.userData.isSurface) continue;
             
@@ -518,9 +550,7 @@ function checkCollisions() {
     if (exitPortal) {
         const distance = player.mesh.position.distanceTo(exitPortal.position);
         if (distance < 3) {
-            if (player.coresCollected >= 2) {
-                endGame(true, "You escaped the collapsing vault!");
-            }
+            endGame(true, "You escaped! The vault collapsed behind you!");
         }
     }
 }
@@ -532,13 +562,18 @@ function collectCore(core) {
     
     player.coresCollected++;
     player.speed += 1.5; // Increase speed
-    collapseInterval = Math.max(2000, collapseInterval - 1000); // Faster collapse
     
     updateHUD();
 }
 
 function updateHUD() {
-    document.getElementById('cores-counter').textContent = `Cores: ${player.coresCollected}/2`;
+    // Calculate progress through the map
+    const spacing = 25;
+    const totalRooms = 25;
+    const currentRoomIndex = Math.floor(player.mesh.position.z / spacing);
+    const progress = Math.min(100, Math.floor((currentRoomIndex / totalRooms) * 100));
+    
+    document.getElementById('cores-counter').textContent = `Progress: ${progress}%`;
     document.getElementById('speed-indicator').textContent = `Speed: ${(player.speed / 3).toFixed(1)}x`;
     
     if (gameActive) {
@@ -547,19 +582,135 @@ function updateHUD() {
     }
 }
 
-function collapseRandomRoom() {
-    // Find rooms that haven't collapsed yet
-    const availableRooms = rooms.filter(room => !room.userData.isCollapsed && room.userData.index !== 0);
+function collapseRoomsBehindPlayer() {
+    // Calculate which room the player is currently in based on Z position
+    const playerZ = player.mesh.position.z;
+    const spacing = 25;
+    const currentRoomIndex = Math.floor(playerZ / spacing);
     
-    if (availableRooms.length === 0) return;
+    // Collapse rooms that are more than 3 rooms behind the player
+    const collapseThreshold = currentRoomIndex - 3;
     
-    // Pick a random room
-    const room = availableRooms[Math.floor(Math.random() * availableRooms.length)];
-    room.userData.isCollapsed = true;
-    room.userData.collapseStartTime = Date.now();
-    room.userData.collapsePhase = 'shake'; // shake -> fall
+    for (const room of rooms) {
+        if (room.userData.isCollapsed) continue;
+        
+        const roomIndex = room.userData.index;
+        
+        // Collapse rooms behind the threshold
+        if (roomIndex < collapseThreshold && roomIndex > 0) {
+            room.userData.isCollapsed = true;
+            room.userData.collapseStartTime = Date.now();
+            room.userData.collapsePhase = 'shake';
+            room.userData.rotationVelocity = new THREE.Vector3(
+                (Math.random() - 0.5) * 0.04,
+                (Math.random() - 0.5) * 0.02,
+                (Math.random() - 0.5) * 0.04
+            );
+            
+            collapsedRooms.push(room);
+            
+            // Create debris particles for visual effect
+            createDebrisEffect(room.position);
+            
+            // Collapse connected corridors
+            collapseConnectedCorridors(roomIndex);
+        }
+    }
+}
+
+function createDebrisEffect(position) {
+    // Create 10-15 small debris particles
+    const numParticles = 10 + Math.floor(Math.random() * 6);
     
-    collapsedRooms.push(room);
+    for (let i = 0; i < numParticles; i++) {
+        const size = 0.2 + Math.random() * 0.5;
+        const geometry = new THREE.BoxGeometry(size, size, size);
+        const material = new THREE.MeshStandardMaterial({
+            color: 0x444444,
+            metalness: 0.3,
+            roughness: 0.7
+        });
+        
+        const particle = new THREE.Mesh(geometry, material);
+        particle.position.copy(position);
+        particle.position.x += (Math.random() - 0.5) * 10;
+        particle.position.y += Math.random() * 5;
+        particle.position.z += (Math.random() - 0.5) * 10;
+        
+        particle.userData.velocity = new THREE.Vector3(
+            (Math.random() - 0.5) * 5,
+            Math.random() * 3 - 1,
+            (Math.random() - 0.5) * 5
+        );
+        particle.userData.rotationSpeed = new THREE.Vector3(
+            (Math.random() - 0.5) * 0.1,
+            (Math.random() - 0.5) * 0.1,
+            (Math.random() - 0.5) * 0.1
+        );
+        particle.userData.lifetime = 3000; // 3 seconds
+        particle.userData.spawnTime = Date.now();
+        
+        scene.add(particle);
+        debrisParticles.push(particle);
+    }
+}
+
+function updateDebrisParticles(deltaTime) {
+    const gravity = -15;
+    const currentTime = Date.now();
+    
+    for (let i = debrisParticles.length - 1; i >= 0; i--) {
+        const particle = debrisParticles[i];
+        const age = currentTime - particle.userData.spawnTime;
+        
+        // Remove old particles
+        if (age > particle.userData.lifetime) {
+            scene.remove(particle);
+            debrisParticles.splice(i, 1);
+            continue;
+        }
+        
+        // Update physics
+        particle.userData.velocity.y += gravity * deltaTime;
+        particle.position.add(particle.userData.velocity.clone().multiplyScalar(deltaTime));
+        
+        // Rotation
+        particle.rotation.x += particle.userData.rotationSpeed.x;
+        particle.rotation.y += particle.userData.rotationSpeed.y;
+        particle.rotation.z += particle.userData.rotationSpeed.z;
+        
+        // Fade out
+        const fadeProgress = age / particle.userData.lifetime;
+        particle.material.opacity = 1 - fadeProgress;
+        particle.material.transparent = true;
+    }
+}
+
+function collapseConnectedCorridors(roomIndex) {
+    for (const corridor of corridors) {
+        if (corridor.userData.isCollapsed) continue;
+        
+        // Check if this corridor connects to the collapsed room
+        if (corridor.userData.connectedRooms.includes(roomIndex)) {
+            // Check if both connected rooms are collapsed
+            const [room1, room2] = corridor.userData.connectedRooms;
+            const room1Collapsed = rooms[room1].userData.isCollapsed;
+            const room2Collapsed = rooms[room2].userData.isCollapsed;
+            
+            // Corridor collapses when either connected room collapses
+            if (room1Collapsed || room2Collapsed) {
+                corridor.userData.isCollapsed = true;
+                corridor.userData.collapseStartTime = Date.now();
+                corridor.userData.collapsePhase = 'shake';
+                corridor.userData.rotationVelocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.06,
+                    (Math.random() - 0.5) * 0.03,
+                    (Math.random() - 0.5) * 0.06
+                );
+                collapsedCorridors.push(corridor);
+            }
+        }
+    }
 }
 
 function updateCollapsingRooms() {
@@ -576,12 +727,101 @@ function updateCollapsingRooms() {
                 room.userData.fallStartY = room.position.y;
             }
         } else if (room.userData.collapsePhase === 'fall') {
-            // Fall and rotate
+            // Fall with acceleration and rotation
             const fallTime = (elapsed - 1000) / 1000;
             room.position.y = room.userData.fallStartY - fallTime * fallTime * 10;
-            room.rotation.x += 0.02;
-            room.rotation.z += 0.015;
+            
+            // Apply rotational velocity with acceleration
+            room.rotation.x += room.userData.rotationVelocity.x * fallTime;
+            room.rotation.y += room.userData.rotationVelocity.y * fallTime;
+            room.rotation.z += room.userData.rotationVelocity.z * fallTime;
         }
+    }
+}
+
+function updateCollapsingCorridors() {
+    for (const corridor of collapsedCorridors) {
+        const elapsed = Date.now() - corridor.userData.collapseStartTime;
+        
+        if (corridor.userData.collapsePhase === 'shake') {
+            // Shake for 0.5 seconds (faster than rooms)
+            if (elapsed < 500) {
+                const shake = Math.sin(elapsed * 0.08) * 0.2;
+                corridor.position.y = shake;
+            } else {
+                corridor.userData.collapsePhase = 'fall';
+                corridor.userData.fallStartY = corridor.position.y;
+            }
+        } else if (corridor.userData.collapsePhase === 'fall') {
+            // Fall faster than rooms (they're lighter)
+            const fallTime = (elapsed - 500) / 1000;
+            corridor.position.y = corridor.userData.fallStartY - fallTime * fallTime * 15;
+            
+            // Apply rotational velocity with acceleration
+            corridor.rotation.x += corridor.userData.rotationVelocity.x * fallTime;
+            corridor.rotation.y += corridor.userData.rotationVelocity.y * fallTime;
+            corridor.rotation.z += corridor.userData.rotationVelocity.z * fallTime;
+        }
+    }
+}
+
+function updateMapMovement(deltaTime) {
+    if (!gameActive) return;
+    
+    // Global sway/drift effect - increases as game progresses
+    const gameTime = (Date.now() - gameStartTime) / 1000;
+    const intensity = Math.min(gameTime / 30, 1.0); // Ramps up over 30 seconds
+    
+    mapDrift.swayTime += deltaTime;
+    
+    // Sinusoidal drift in multiple axes
+    const swayX = Math.sin(mapDrift.swayTime * 0.3) * 0.5 * intensity;
+    const swayY = Math.sin(mapDrift.swayTime * 0.2) * 0.3 * intensity;
+    const swayZ = Math.cos(mapDrift.swayTime * 0.25) * 0.5 * intensity;
+    
+    mapDrift.offset.set(swayX, swayY, swayZ);
+    
+    // Apply drift to all non-collapsed structures
+    for (const room of rooms) {
+        if (!room.userData.isCollapsed) {
+            const basePos = room.userData.basePosition || room.position.clone();
+            if (!room.userData.basePosition) {
+                room.userData.basePosition = basePos.clone();
+            }
+            room.position.copy(basePos).add(mapDrift.offset);
+        }
+    }
+    
+    for (const corridor of corridors) {
+        if (!corridor.userData.isCollapsed) {
+            const basePos = corridor.userData.basePosition || corridor.position.clone();
+            if (!corridor.userData.basePosition) {
+                corridor.userData.basePosition = basePos.clone();
+            }
+            corridor.position.copy(basePos).add(mapDrift.offset);
+        }
+    }
+    
+    // Apply to data cores
+    for (const core of dataCores) {
+        if (!core.userData.collected) {
+            const basePos = core.userData.basePosition || core.position.clone();
+            if (!core.userData.basePosition) {
+                core.userData.basePosition = basePos.clone();
+            }
+            core.position.copy(basePos).add(mapDrift.offset);
+            core.userData.light.position.copy(core.position);
+        }
+    }
+    
+    // Apply to exit portal
+    if (exitPortal) {
+        const basePos = exitPortal.userData.basePosition || exitPortal.position.clone();
+        if (!exitPortal.userData.basePosition) {
+            exitPortal.userData.basePosition = basePos.clone();
+        }
+        exitPortal.position.copy(basePos).add(mapDrift.offset);
+        exitPortal.userData.light.position.copy(exitPortal.position);
     }
 }
 
@@ -612,6 +852,7 @@ function animate() {
     const deltaTime = clock.getDelta();
     
     if (gameActive) {
+        updateMapMovement(deltaTime);
         updatePlayer(deltaTime);
         updateHUD();
         
@@ -619,7 +860,9 @@ function animate() {
         for (const core of dataCores) {
             if (!core.userData.collected) {
                 core.rotation.y += deltaTime * 2;
-                core.position.y += Math.sin(Date.now() * 0.003) * 0.01;
+                const baseY = core.userData.basePosition ? core.userData.basePosition.y : core.position.y;
+                core.position.y = baseY + mapDrift.offset.y + Math.sin(Date.now() * 0.003) * 0.1;
+                core.userData.light.position.copy(core.position);
             }
         }
         
@@ -629,14 +872,15 @@ function animate() {
             exitPortal.rotation.x = Math.sin(Date.now() * 0.001) * 0.2;
         }
         
-        // Check if it's time to collapse a room
-        if (Date.now() - lastCollapseTime > collapseInterval) {
-            collapseRandomRoom();
-            lastCollapseTime = Date.now();
-        }
+        // Continuously check and collapse rooms behind player
+        collapseRoomsBehindPlayer();
         
-        // Update collapsing rooms
+        // Update collapsing rooms and corridors
         updateCollapsingRooms();
+        updateCollapsingCorridors();
+        
+        // Update debris particles
+        updateDebrisParticles(deltaTime);
     }
     
     renderer.render(scene, camera);
