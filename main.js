@@ -423,6 +423,16 @@ function updatePlayer(deltaTime) {
     player.velocity.x = forward.x * player.speed;
     player.velocity.z = forward.z * player.speed;
     
+    // Forward/Backward movement (W/S)
+    if (keys['KeyW'] || keys['ArrowUp']) {
+        player.velocity.x += forward.x * player.speed * 0.5;
+        player.velocity.z += forward.z * player.speed * 0.5;
+    }
+    if (keys['KeyS'] || keys['ArrowDown']) {
+        player.velocity.x -= forward.x * player.speed * 0.5;
+        player.velocity.z -= forward.z * player.speed * 0.5;
+    }
+    
     // Strafe (A/D or Left/Right)
     if (keys['KeyA'] || keys['ArrowLeft']) {
         player.velocity.x -= right.x * player.speed * 0.7;
@@ -434,7 +444,7 @@ function updatePlayer(deltaTime) {
     }
     
     // Jump
-    if ((keys['Space'] || keys['KeyW'] || keys['ArrowUp']) && !player.isJumping && player.currentSurface) {
+    if (keys['Space'] && !player.isJumping && player.currentSurface) {
         player.velocity.y = player.jumpStrength;
         player.isJumping = true;
     }

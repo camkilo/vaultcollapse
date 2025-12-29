@@ -13,10 +13,12 @@ A fast-paced first-person 3D escape game built with Three.js. Navigate through a
 ## 🕹️ Controls
 
 - **Mouse**: Look around (first-person view)
-- **W / Arrow Up / Space**: Jump
+- **W / Arrow Up**: Move forward (speed boost)
+- **S / Arrow Down**: Move backward (slow down)
 - **A / Arrow Left**: Strafe left
 - **D / Arrow Right**: Strafe right
-- **Note**: You move forward constantly and cannot stop!
+- **Space**: Jump
+- **Note**: You have constant forward momentum that can be modified with W/S keys!
 
 ## ⚙️ Game Mechanics
 
