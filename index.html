@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VaultCollapse - Escape Before It Falls</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="instructions">
+        <h1>VAULTCOLLAPSE</h1>
+        <p>Click to start</p>
+        <p>WASD - Move | SPACE - Jump | Mouse - Look</p>
+        <p>Collect 2 data cores and reach the exit portal before the vault collapses!</p>
+        <p>Each core increases your speed and collapse rate</p>
+    </div>
+    
+    <div id="hud">
+        <div id="cores-counter">Cores: 0/2</div>
+        <div id="speed-indicator">Speed: 1.0x</div>
+        <div id="timer">Time: 0s</div>
+    </div>
+    
+    <div id="game-over" class="hidden">
+        <h1 id="game-over-title">GAME OVER</h1>
+        <p id="game-over-message"></p>
+        <button onclick="location.reload()">Play Again</button>
+    </div>
+    
+    <script src="three.min.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
