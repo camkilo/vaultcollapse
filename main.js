@@ -11,6 +11,10 @@ let player = {
     gravity: new THREE.Vector3(0, -20, 0)
 };
 
+// Movement constants
+const FORWARD_SPEED_MODIFIER = 0.5;  // Speed boost when pressing W
+const STRAFE_SPEED_MODIFIER = 0.7;   // Strafe speed multiplier for A/D
+
 let keys = {};
 let mouseMovement = { x: 0, y: 0 };
 let rooms = [];
@@ -425,22 +429,22 @@ function updatePlayer(deltaTime) {
     
     // Forward/Backward movement (W/S)
     if (keys['KeyW'] || keys['ArrowUp']) {
-        player.velocity.x += forward.x * player.speed * 0.5;
-        player.velocity.z += forward.z * player.speed * 0.5;
+        player.velocity.x += forward.x * player.speed * FORWARD_SPEED_MODIFIER;
+        player.velocity.z += forward.z * player.speed * FORWARD_SPEED_MODIFIER;
     }
     if (keys['KeyS'] || keys['ArrowDown']) {
-        player.velocity.x -= forward.x * player.speed * 0.5;
-        player.velocity.z -= forward.z * player.speed * 0.5;
+        player.velocity.x -= forward.x * player.speed * FORWARD_SPEED_MODIFIER;
+        player.velocity.z -= forward.z * player.speed * FORWARD_SPEED_MODIFIER;
     }
     
     // Strafe (A/D or Left/Right)
     if (keys['KeyA'] || keys['ArrowLeft']) {
-        player.velocity.x -= right.x * player.speed * 0.7;
-        player.velocity.z -= right.z * player.speed * 0.7;
+        player.velocity.x -= right.x * player.speed * STRAFE_SPEED_MODIFIER;
+        player.velocity.z -= right.z * player.speed * STRAFE_SPEED_MODIFIER;
     }
     if (keys['KeyD'] || keys['ArrowRight']) {
-        player.velocity.x += right.x * player.speed * 0.7;
-        player.velocity.z += right.z * player.speed * 0.7;
+        player.velocity.x += right.x * player.speed * STRAFE_SPEED_MODIFIER;
+        player.velocity.z += right.z * player.speed * STRAFE_SPEED_MODIFIER;
     }
     
     // Jump
