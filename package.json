@@ -1,5 +1,12 @@
 {
+  "name": "vaultcollapse",
+  "version": "1.0.0",
+  "description": "A fast-paced first-person 3D escape game",
+  "scripts": {
+    "start": "npx serve -l $PORT -s ."
+  },
   "dependencies": {
-    "three": "^0.128.0"
+    "three": "^0.128.0",
+    "serve": "^14.2.0"
   }
 }
