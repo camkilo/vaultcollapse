@@ -19,8 +19,6 @@ let dataCores = [];
 let exitPortal = null;
 let gameActive = false;
 let gameStartTime = 0;
-let collapseInterval = 5000; // milliseconds
-let lastCollapseTime = 0;
 let collapsedRooms = [];
 let collapsedCorridors = [];
 let debrisParticles = []; // Visual debris from collapse
@@ -564,7 +562,6 @@ function collectCore(core) {
     
     player.coresCollected++;
     player.speed += 1.5; // Increase speed
-    collapseInterval = Math.max(2000, collapseInterval - 1000); // Faster collapse
     
     updateHUD();
 }
