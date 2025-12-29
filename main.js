@@ -593,7 +593,7 @@ function collapseConnectedCorridors(roomIndex) {
             const room1Collapsed = rooms[room1].userData.isCollapsed;
             const room2Collapsed = rooms[room2].userData.isCollapsed;
             
-            // Corridor collapses if either connected room is collapsed
+            // Corridor collapses when either connected room collapses
             if (room1Collapsed || room2Collapsed) {
                 corridor.userData.isCollapsed = true;
                 corridor.userData.collapseStartTime = Date.now();
@@ -757,7 +757,7 @@ function animate() {
             if (!core.userData.collected) {
                 core.rotation.y += deltaTime * 2;
                 const baseY = core.userData.basePosition ? core.userData.basePosition.y : core.position.y;
-                core.position.y = baseY + mapDrift.offset.y + Math.sin(Date.now() * 0.003) * 0.3;
+                core.position.y = baseY + mapDrift.offset.y + Math.sin(Date.now() * 0.003) * 0.1;
                 core.userData.light.position.copy(core.position);
             }
         }
@@ -765,7 +765,6 @@ function animate() {
         // Animate exit portal
         if (exitPortal) {
             exitPortal.rotation.y += deltaTime;
-            const baseX = exitPortal.userData.basePosition ? exitPortal.userData.basePosition.x : exitPortal.position.x;
             exitPortal.rotation.x = Math.sin(Date.now() * 0.001) * 0.2;
         }
         
